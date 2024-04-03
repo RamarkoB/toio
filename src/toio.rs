@@ -6,9 +6,12 @@ use btleplug::{
     api::{CharPropFlags, Characteristic, Peripheral, ValueNotification, WriteType},
     platform,
 };
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Receiver;
 use futures::stream::StreamExt;
 use std::time::SystemTime;
 use uuid::Uuid;
+use std::error::Error;
 
 use tokio::time::timeout;
 
@@ -297,8 +300,10 @@ impl Toio {
         }
     }
 
-    pub async fn start_update_stream(&self) {
-        let mut notification_stream = self.peripheral.notifications().await.unwrap();
+    pub async fn updates(&self) ->  Result<Receiver<Update>, Box<dyn Error>> {
+        let (tx, rx) = mpsc::channel(32);
+
+        let mut notification_stream = self.peripheral.notifications().await?;
         tokio::spawn(async move {
             // let notification_steam = notification_stream;
 
@@ -310,11 +315,13 @@ impl Toio {
             {
                 if let Some(event) = possible_event {
                     if let Some(update) = Toio::get_update(event) {
-                        println!("{:?}", update);
+                        tx.send(update).await.unwrap();
                     }
                 }
             }
         });
+
+        return Ok(rx);
     }
 
     fn get_update(notification: ValueNotification) -> Option<Update> {
@@ -652,5 +659,23 @@ impl Toio {
             .write(&characteristic, &cmd, responseType)
             .await
             .unwrap();
+    }
+}
+
+pub struct Updates {
+    receiver: Receiver<Update>
+}
+
+impl Updates {
+    fn new(receiver: Receiver<Update>) -> Updates {
+        return Updates {receiver} 
+    }
+}
+
+impl Iterator for Updates {
+    type Item = Update;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.receiver.try_recv().ok()
     }
 }
