@@ -9,7 +9,7 @@ use btleplug::{
 use futures::stream::StreamExt;
 use std::error::Error;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Sender, Receiver};
 use tokio::time::timeout;
 use uuid::Uuid;
 
@@ -21,7 +21,7 @@ pub const SOUND: Uuid = Uuid::from_u128(0x10B20104_5B3B_4571_9508_CF3EFCD7BBAE);
 pub const MOTION: Uuid = Uuid::from_u128(0x10B20106_5B3B_4571_9508_CF3EFCD7BBAE);
 pub const BUTTON: Uuid = Uuid::from_u128(0x10B20107_5B3B_4571_9508_CF3EFCD7BBAE);
 pub const BATTERY: Uuid = Uuid::from_u128(0x10B20108_5B3B_4571_9508_CF3EFCD7BBAE);
-// pub const CONFIG: Uuid = Uuid::from_u128(0x10B201FF_5B3B_4571_9508_CF3EFCD7BBAE);
+pub const CONFIG: Uuid = Uuid::from_u128(0x10B201FF_5B3B_4571_9508_CF3EFCD7BBAE);
 
 
 /// matches UUIDs of toios a string of their coresponding service
@@ -35,7 +35,7 @@ pub fn uuid_to_string(uuid: Uuid) -> String {
         MOTION => "Motion",
         BUTTON => "Button",
         BATTERY => "Battery",
-        // CONFIG => "Config",
+        CONFIG => "Config",
         _ => "",
     }
     .to_owned();
@@ -131,7 +131,7 @@ pub enum Command {
     //Light Commands
     LedOff,
     Led {
-        length: u8,
+        duration: u8,
         red: u8,
         green: u8,
         blue: u8,
@@ -263,7 +263,7 @@ pub enum Update {
 }
 
 pub struct Toio {
-    name: String,
+    pub name: String,
     peripheral: platform::Peripheral,
 }
 
@@ -272,14 +272,13 @@ impl Toio {
         Toio { name, peripheral }
     }
 
-    pub async fn connect(&self) {
-        if let Err(err) = self.peripheral.connect().await {
-            eprintln!("Error connecting to {}", err);
-        } else {
-            println!("Connected to {}", self.name);
+    pub async fn connect(&self) -> bool {
+        if let Err(_) = self.peripheral.connect().await {
+            return false;
+        } else if let Err(_) = self.peripheral.discover_services().await {
+            return false;
         }
 
-        self.peripheral.discover_services().await.unwrap();
 
         for characteristic in self.peripheral.characteristics().into_iter() {
             if !characteristic.properties.contains(CharPropFlags::NOTIFY) {
@@ -289,13 +288,10 @@ impl Toio {
             if let Err(err) = self.peripheral.subscribe(&characteristic).await {
                 eprintln!("Error connecting to characteristic, skipping: {}", err);
                 continue;
-            } else {
-                // println!(
-                //     "Connected to {} characteristic",
-                //     uuid_to_string(characteristic.uuid)
-                // );
             }
         }
+
+        return true;
     }
 
     pub async fn updates(&self) -> Result<Updates, Box<dyn Error>> {
@@ -320,6 +316,10 @@ impl Toio {
         });
 
         return Ok(Updates::new(rx));
+    }
+
+    pub async fn is_connected(&self) -> bool {
+        return self.peripheral.is_connected().await.unwrap();
     }
 
     fn get_update(notification: ValueNotification) -> Option<Update> {
@@ -606,12 +606,12 @@ impl Toio {
                 vec![0x01]
             }
             Command::Led {
-                length,
+                duration,
                 red,
                 green,
                 blue,
             } => {
-                vec![0x03, length, 0x01, 0x01, red, blue, green]
+                vec![0x03, duration, 0x01, 0x01, red, blue, green]
             }
             Command::LedRepeat {
                 repetitions,
@@ -688,7 +688,7 @@ impl ToioScanner {
         // start scanning for devices
         central
             .start_scan(ScanFilter {
-                services: vec![crate::SERVICE],
+                services: vec![SERVICE, CONFIG],
             })
             .await?;
 
@@ -700,21 +700,14 @@ impl ToioScanner {
                 match event {
                     CentralEvent::DeviceDiscovered(id) => {
                         let peripheral = central.peripheral(&id).await.unwrap();
-
-                        if let Some(properties) = peripheral.properties().await.unwrap() {
-                            if !properties.services.contains(&crate::SERVICE) {
-                                let name = properties.local_name.unwrap_or("".to_string());
-                                tx.send(Toio::new(name, peripheral)).await.unwrap();
-                            }
-                        }
-
-                        // tx.send(id).await.unwrap();
+                        Self::try_connect(peripheral, &tx).await;
                     }
                     // CentralEvent::DeviceUpdated(id) => {
-                    //     tx.send(id).await.unwrap();
+                    //     let peripheral = central.peripheral(&id).await.unwrap();
+                    //     Self::try_connect(peripheral, &tx).await;
                     // }
-                    CentralEvent::DeviceDisconnected(id) => {
-                        println!("Device Disconnected! {:?}", id);
+                    CentralEvent::DeviceDisconnected(_) => {
+                        // println!("Device Disconnected! {:?}", id);
                     }
                     _ => {}
                 }
@@ -722,6 +715,20 @@ impl ToioScanner {
         });
 
         return Ok(Toios::new(rx));
+    }
+
+    async fn try_connect(peripheral: platform::Peripheral, tx: &Sender<Toio>) {
+        if let Some(properties) = peripheral.properties().await.unwrap() {
+            let fullname = properties.local_name.unwrap_or("".to_string());
+            if peripheral.is_connected().await.unwrap() || !fullname.contains(&"toio") {
+                return;
+            }
+
+            let name: Vec<&str> = fullname.split('-').collect();
+
+            // println!("{} : {:?}", name, properties.services);
+            tx.send(Toio::new(name.last().unwrap_or(&&" ").to_string(), peripheral)).await.unwrap();
+        }
     }
 }
 

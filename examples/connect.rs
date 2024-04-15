@@ -12,12 +12,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         tokio::spawn(async move {
             while let Some(update) = updates.next().await {
-                println!("{:?}", update);
+                match update {
+                    Update::Position { .. } => {}
+                    _ => println!("{:?}", update)
+                }
             }
         });
 
         toio.send_command(toio::Command::Led {
-            length: 0,
+            duration: 0,
             red: 255,
             green: 255,
             blue: 255,
@@ -92,16 +95,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
         .await;
 
-        toio.send_command(toio::Command::MotorAcceleration {
-            velocity: 50,
-            acceleration: 5,
-            rotational_velocity: 15,
-            rotational_direction: 0,
-            direction: 0,
-            priority: 0,
-            duration: 255,
-        })
-        .await;
+        // toio.send_command(toio::Command::MotorAcceleration {
+        //     velocity: 50,
+        //     acceleration: 5,
+        //     rotational_velocity: 15,
+        //     rotational_direction: 0,
+        //     direction: 0,
+        //     priority: 0,
+        //     duration: 255,
+        // })
+        // .await;
 
 
     }
