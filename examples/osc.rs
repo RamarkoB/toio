@@ -1,6 +1,7 @@
 use ::toio::*;
 
 use std::error::Error;
+use std::time::SystemTime;
 use std::io::{self, stdout};
 use std::net::UdpSocket;
 use std::process;
@@ -236,11 +237,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let sock = socket.clone();
     let connected_clone = connected.clone();
     tokio::spawn(async move {
+        // let mut now = SystemTime::now();
         while let Ok(size) = sock.recv(&mut buf) {
             let (_, packet) = rosc::decoder::decode_udp(&buf[..size]).unwrap();
             if let Some((toionum, cmd)) = handle_packet(packet) {
                 let connected_read = connected_clone.read().await;
-                if toionum > connected_read.len() {
+                if toionum < connected_read.len() {
                     connected_read[toionum].toio.send_command(cmd).await;
                 }
             }
@@ -261,12 +263,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             let id = connected_write.len();
             let battery = toio_ui.get_battery();
+            let last_update = toio_ui.get_last_update();
             tokio::spawn(async move {
                 while let Some(update) = updates.next().await {
                     if let Update::Battery { level } = update {
                         let mut battery = battery.write().await;
                         *battery = Some(level);
-                    }
+                    } 
+
+                    let mut last_update = last_update.write().await;
+                    *last_update = Some(SystemTime::now());
 
                     send_packet(&sock, to_addr, id, update);
                 }
@@ -290,19 +296,34 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let toio = &connected_read[i];
 
             let name = toio.name.clone();
-            let battery_string;
-
-            if let Some(level) = *toio.battery.read().await {
-                battery_string = format!("{}", level);
+            
+            let battery_string = if let Some(level) = *toio.battery.read().await {
+                format!("{}", level)
             } else {
-                battery_string = "N/A".to_string();
-            }
+                "N/A".to_string()
+            };
+
+            let last_update_string = if let Some(last) = *toio.last_update.read().await {
+                if let Ok(time) = last.elapsed() {
+                    if time.as_millis() < 50 {
+                        "<50ms".to_string()
+                    } else if time.as_secs() < 1 {
+                        format!(">{}ms", time.as_millis() - (time.as_millis() % 100))
+                    } else {
+                        format!("{}s", time.as_secs())
+                    }
+                } else {
+                    "N/A".to_string()
+                }
+            } else {
+                "N/A".to_string()
+            };
 
             let connected = toio.is_connected().await;
 
             let id = toio.id.clone();
 
-            names.push((name, id, battery_string, connected));
+            names.push((name, id, battery_string, last_update_string, connected));
             i += 1;
         }
 
@@ -330,8 +351,7 @@ fn handle_events() -> io::Result<bool> {
 fn handle_packet(packet: OscPacket) -> Option<(usize, Command)> {
     match packet {
         OscPacket::Message(msg) => {
-            // println!("OSC address: {}", msg.addr);
-            // println!("OSC arguments: {:?}", msg.args);
+            // println!("OSC address {}: {:?}", msg.addr, msg.args);
             let mut vals = vec![];
 
             for k in 0..msg.args.len() {
@@ -473,7 +493,7 @@ fn send_packet(socket: &UdpSocket, to_addr: &str, id: usize, update: Update) {
     if let Some((addr, args)) = vals {
         let msg = encoder::encode(&OscPacket::Message(OscMessage {
             addr: addr.to_string(),
-            args: vec![id as i32]
+            args: vec![id as i32, id as i32]
                 .iter()
                 .chain(args.iter())
                 .map(|x| OscType::Int(*x))
@@ -490,6 +510,7 @@ struct ToioUI {
     name: String,
     id: String,
     battery: Arc<RwLock<Option<u8>>>,
+    last_update: Arc<RwLock<Option<SystemTime>>>,
 }
 
 impl ToioUI {
@@ -499,6 +520,7 @@ impl ToioUI {
             id: if let Some(id) = return_toio_id(&toio.name) { format!("{}", id) } else { "N/A".to_owned() },
             battery: Arc::new(RwLock::new(None)),
             toio,
+            last_update: Arc::new(RwLock::new(None))
         };
     }
 
@@ -506,12 +528,16 @@ impl ToioUI {
         return self.battery.clone();
     }
 
+    pub fn get_last_update(&self) -> Arc<RwLock<Option<SystemTime>>> {
+        return self.last_update.clone();
+    }
+
     pub async fn is_connected(&self) -> bool {
         return self.toio.is_connected().await;
     }
 }
 
-fn ui(names: Vec<(String, String, String, bool)>) -> impl Fn(&mut Frame) {
+fn ui(names: Vec<(String, String, String, String, bool)>) -> impl Fn(&mut Frame) {
     return move |frame| {
         let area = frame.size();
 
@@ -519,7 +545,7 @@ fn ui(names: Vec<(String, String, String, bool)>) -> impl Fn(&mut Frame) {
             .iter()
             .enumerate()
             .map(|(i, val)| {
-                Row::new(vec![format!("{}", i), val.0.clone(), val.1.clone(), val.2.clone()])
+                Row::new(vec![format!("{}", i), val.0.clone(), val.1.clone(), val.2.clone(), val.3.clone()])
             })
             .collect();
 
@@ -534,6 +560,7 @@ fn ui(names: Vec<(String, String, String, bool)>) -> impl Fn(&mut Frame) {
             Constraint::Length(4),
             Constraint::Length(3),
             Constraint::Length(7),
+            Constraint::Length(12),
         ];
 
         let table = Table::new(rows, widths)
@@ -541,7 +568,7 @@ fn ui(names: Vec<(String, String, String, bool)>) -> impl Fn(&mut Frame) {
             .column_spacing(10)
             // It has an optional header, which is simply a Row always visible at the top.
             .header(
-                Row::new(vec!["", "Name", "ID", "Battery"])
+                Row::new(vec!["", "Name", "ID", "Battery", "Last Update"])
                     .style(Style::new().bold())
                     // To add space between the header and the rest of the rows, specify the margin
             )
