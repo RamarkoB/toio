@@ -240,7 +240,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let (_, packet) = rosc::decoder::decode_udp(&buf[..size]).unwrap();
             if let Some((toionum, cmd)) = handle_packet(packet) {
                 let connected_read = connected_clone.read().await;
-                connected_read[toionum].toio.send_command(cmd).await;
+                if toionum > connected_read.len() {
+                    connected_read[toionum].toio.send_command(cmd).await;
+                }
             }
         }
     });
