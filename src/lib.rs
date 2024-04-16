@@ -611,7 +611,7 @@ impl Toio {
                 green,
                 blue,
             } => {
-                vec![0x03, duration, 0x01, 0x01, red, blue, green]
+                vec![0x03, duration, 0x01, 0x01, red, green, blue]
             }
             Command::LedRepeat {
                 repetitions,
