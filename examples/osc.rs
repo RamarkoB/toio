@@ -244,6 +244,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             if let Some((toionum, cmd)) = handle_packet(packet) {
                 let connected_read = connected_clone.read().await;
                 if toionum < connected_read.len() {
+                    let last_command = connected_read[toionum].get_last_command();
+                    let mut last_command_write = last_command.write().await;
+                    *last_command_write = Some(SystemTime::now());
+
                     connected_read[toionum].toio.send_command(cmd).await;
                 }
             }
@@ -320,11 +324,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 "N/A".to_string()
             };
 
+            let last_command_string = if let Some(last) = *toio.last_command.read().await {
+                if let Ok(time) = last.elapsed() {
+                    if time.as_millis() < 50 {
+                        "<50ms".to_string()
+                    } else if time.as_secs() < 1 {
+                        format!(">{}ms", time.as_millis() - (time.as_millis() % 100))
+                    } else {
+                        format!("{}s", time.as_secs())
+                    }
+                } else {
+                    "N/A".to_string()
+                }
+            } else {
+                "N/A".to_string()
+            };
+
             let connected = toio.is_connected().await;
 
             let id = toio.id.clone();
 
-            names.push((name, id, battery_string, last_update_string, connected));
+            names.push((name, id, battery_string, last_update_string, last_command_string, connected));
             i += 1;
         }
 
@@ -513,6 +533,7 @@ struct ToioUI {
     id: String,
     battery: Arc<RwLock<Option<u8>>>,
     last_update: Arc<RwLock<Option<SystemTime>>>,
+    last_command: Arc<RwLock<Option<SystemTime>>>,
 }
 
 impl ToioUI {
@@ -522,7 +543,8 @@ impl ToioUI {
             id: if let Some(id) = return_toio_id(&toio.name) { format!("{}", id) } else { "N/A".to_owned() },
             battery: Arc::new(RwLock::new(None)),
             toio,
-            last_update: Arc::new(RwLock::new(None))
+            last_update: Arc::new(RwLock::new(None)),
+            last_command: Arc::new(RwLock::new(None))
         };
     }
 
@@ -534,12 +556,16 @@ impl ToioUI {
         return self.last_update.clone();
     }
 
+    pub fn get_last_command(&self) -> Arc<RwLock<Option<SystemTime>>> {
+        return self.last_command.clone();
+    }
+
     pub async fn is_connected(&self) -> bool {
         return self.toio.is_connected().await;
     }
 }
 
-fn ui(names: Vec<(String, String, String, String, bool)>) -> impl Fn(&mut Frame) {
+fn ui(names: Vec<(String, String, String, String, String, bool)>) -> impl Fn(&mut Frame) {
     return move |frame| {
         let area = frame.size();
 
@@ -547,7 +573,7 @@ fn ui(names: Vec<(String, String, String, String, bool)>) -> impl Fn(&mut Frame)
             .iter()
             .enumerate()
             .map(|(i, val)| {
-                Row::new(vec![format!("{}", i), val.0.clone(), val.1.clone(), val.2.clone(), val.3.clone()])
+                Row::new(vec![format!("{}", i), val.0.clone(), val.1.clone(), val.2.clone(), val.3.clone(), val.4.clone()])
             })
             .collect();
 
@@ -563,14 +589,15 @@ fn ui(names: Vec<(String, String, String, String, bool)>) -> impl Fn(&mut Frame)
             Constraint::Length(3),
             Constraint::Length(7),
             Constraint::Length(12),
+            Constraint::Length(12),
         ];
 
         let table = Table::new(rows, widths)
             // ...and they can be separated by a fixed spacing.
-            .column_spacing(10)
+            .column_spacing(7)
             // It has an optional header, which is simply a Row always visible at the top.
             .header(
-                Row::new(vec!["", "Name", "ID", "Battery", "Last Update"])
+                Row::new(vec!["", "Name", "ID", "Battery", "Last Update", "Last Command"])
                     .style(Style::new().bold())
                     // To add space between the header and the rest of the rows, specify the margin
             )
