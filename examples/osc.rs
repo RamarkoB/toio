@@ -13,6 +13,7 @@ use rosc::{OscMessage, OscPacket, OscType};
 use tokio::sync::RwLock;
 
 use crossterm::{
+    cursor::Show,
     event::{self, Event, KeyCode},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
@@ -331,6 +332,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         if handle_events()? {
             disable_raw_mode()?;
+            stdout().execute(Show)?;
             stdout().execute(LeaveAlternateScreen)?;
             process::exit(0);
         }
