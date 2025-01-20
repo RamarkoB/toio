@@ -424,6 +424,39 @@ fn handle_packet(packet: OscPacket) -> Option<(usize, Command)> {
                     priority: vals[6] as u8,
                     duration: vals[7] as u8,
                 }),
+                "/multitarget" => {
+                    println!();
+                    println!("MultTarget! ");
+                    println!("{:#?}", vals);
+
+                    let a = Some(Command::MultiTarget {
+                        control: vals[1] as u8,
+                        timeout: vals[2] as u8,
+                        move_type: vals[3] as u8,
+                        max_speed: vals[4] as u8,
+                        speed_change: vals[5] as u8,
+                        op_add: vals[6] as u8,
+                        targets: {
+                            let mut targets = vec![];
+
+                            let size = (targets.len() - 7) / 3;
+
+                            for k in 0..size {
+                                targets.push(TargetCommand {
+                                    x_target: vals[7 + (k * 3)] as u16,
+                                    y_target: vals[8 + (k * 3)] as u16,
+                                    theta_target: vals[9 + (k * 3)] as u16,
+                                });
+                            }
+
+                            targets
+                        },
+                    });
+
+                    println!("{:#?}", a);
+
+                    a
+                }
                 "/led" => Some(Command::Led {
                     duration: vals[1] as u8,
                     red: vals[2] as u8,
@@ -478,10 +511,10 @@ fn send_packet(socket: &UdpSocket, to_addr: &str, id: usize, update: Update) {
             ],
         )),
         Update::MotorTargetResponse { control, response } => {
-            Some(("/motorResponse", vec![control as i32, response as i32]))
+            Some(("/motorresponse", vec![control as i32, response as i32]))
         }
         Update::MultiTargetResponse { control, response } => {
-            Some(("/motorResponse", vec![control as i32, response as i32]))
+            Some(("/motorresponse", vec![control as i32, response as i32]))
         }
         Update::Standard { standard, theta } => {
             Some(("/standard", vec![standard as i32, theta as i32]))
@@ -522,7 +555,7 @@ fn send_packet(socket: &UdpSocket, to_addr: &str, id: usize, update: Update) {
     if let Some((addr, args)) = vals {
         let msg = encoder::encode(&OscPacket::Message(OscMessage {
             addr: addr.to_string(),
-            args: vec![id as i32, id as i32]
+            args: vec![id as i32]
                 .iter()
                 .chain(args.iter())
                 .map(|x| OscType::Int(*x))

@@ -9,7 +9,7 @@ use btleplug::{
 use futures::stream::StreamExt;
 use std::error::Error;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::{Sender, Receiver};
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::time::timeout;
 use uuid::Uuid;
 
@@ -22,7 +22,6 @@ pub const MOTION: Uuid = Uuid::from_u128(0x10B20106_5B3B_4571_9508_CF3EFCD7BBAE)
 pub const BUTTON: Uuid = Uuid::from_u128(0x10B20107_5B3B_4571_9508_CF3EFCD7BBAE);
 pub const BATTERY: Uuid = Uuid::from_u128(0x10B20108_5B3B_4571_9508_CF3EFCD7BBAE);
 pub const CONFIG: Uuid = Uuid::from_u128(0x10B201FF_5B3B_4571_9508_CF3EFCD7BBAE);
-
 
 /// matches UUIDs of toios a string of their coresponding service
 pub fn uuid_to_string(uuid: Uuid) -> String {
@@ -45,7 +44,7 @@ pub fn uuid_to_string(uuid: Uuid) -> String {
 /// of the Command enum. By putting multiple of these into a vector,
 /// you can send a a series of targets for a toio to travel to in
 /// a sequence.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TargetCommand {
     pub x_target: u16,
     pub y_target: u16,
@@ -56,7 +55,7 @@ pub struct TargetCommand {
 /// of the Command enum. By putting multiple of these into a vector,
 /// you can send a a series of colors for a toio to flash on its led
 /// in a sequence.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LedCommand {
     pub duration: u8,
     pub red: u8,
@@ -68,7 +67,7 @@ pub struct LedCommand {
 /// of the Command enum. By putting multiple of these into a vector,
 /// you can send a a series of notes for a toio to play  in
 /// a sequence.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MidiCommand {
     pub duration: u8,
     pub note: u8,
@@ -76,9 +75,9 @@ pub struct MidiCommand {
 }
 
 /// An enum to list out all possible commands to send to a toio
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Command {
-    //Request Commands 
+    //Request Commands
     MotionRequest,
     MagneticRequest,
     PostureRequest {
@@ -152,7 +151,6 @@ pub enum Command {
         notes: Vec<MidiCommand>,
     },
 }
-
 
 fn parse_target_command(vals: Vec<TargetCommand>) -> Vec<u8> {
     let mut cmd = vec![];
@@ -278,7 +276,6 @@ impl Toio {
         } else if let Err(_) = self.peripheral.discover_services().await {
             return false;
         }
-
 
         for characteristic in self.peripheral.characteristics().into_iter() {
             if !characteristic.properties.contains(CharPropFlags::NOTIFY) {
@@ -727,7 +724,12 @@ impl ToioScanner {
             let name: Vec<&str> = fullname.split('-').collect();
 
             // println!("{} : {:?}", name, properties.services);
-            tx.send(Toio::new(name.last().unwrap_or(&&" ").to_string(), peripheral)).await.unwrap();
+            tx.send(Toio::new(
+                name.last().unwrap_or(&&" ").to_string(),
+                peripheral,
+            ))
+            .await
+            .unwrap();
         }
     }
 }
@@ -746,7 +748,6 @@ impl Toios {
     }
 }
 
-
 pub struct Updates {
     receiver: Receiver<Update>,
 }
@@ -760,4 +761,3 @@ impl Updates {
         return self.receiver.recv().await;
     }
 }
-
