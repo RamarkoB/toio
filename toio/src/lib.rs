@@ -51,7 +51,7 @@ pub struct TargetCommand {
     pub theta_target: u16,
 }
 
-/// Format for a RGB color to plug into the LedRepeat varient
+/// Format for a RGB color to plug into the MultiLed varient
 /// of the Command enum. By putting multiple of these into a vector,
 /// you can send a a series of colors for a toio to flash on its led
 /// in a sequence.
@@ -135,7 +135,7 @@ pub enum Command {
         green: u8,
         blue: u8,
     },
-    LedRepeat {
+    MultiLed {
         repetitions: u8,
         lights: Vec<LedCommand>,
     },
@@ -473,7 +473,7 @@ impl Toio {
             | Command::MotorTarget { .. }
             | Command::MultiTarget { .. }
             | Command::MotorAcceleration { .. } => MOTOR,
-            Command::LedOff | Command::Led { .. } | Command::LedRepeat { .. } => LIGHT,
+            Command::LedOff | Command::Led { .. } | Command::MultiLed { .. } => LIGHT,
             Command::SoundOff | Command::Sound { .. } | Command::Midi { .. } => SOUND,
         };
 
@@ -610,7 +610,7 @@ impl Toio {
             } => {
                 vec![0x03, duration, 0x01, 0x01, red, green, blue]
             }
-            Command::LedRepeat {
+            Command::MultiLed {
                 repetitions,
                 lights,
             } => parse_led_command(repetitions, lights),

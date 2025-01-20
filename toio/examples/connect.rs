@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             while let Some(update) = updates.next().await {
                 match update {
                     Update::Position { .. } => {}
-                    _ => println!("{:?}", update)
+                    _ => println!("{:?}", update),
                 }
             }
         });
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
         .await;
 
-        toio.send_command(toio::Command::LedRepeat {
+        toio.send_command(toio::Command::MultiLed {
             repetitions: 2,
             lights: vec![
                 toio::LedCommand {
@@ -105,10 +105,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         //     duration: 255,
         // })
         // .await;
-
-
     }
-
 
     Ok(())
 }

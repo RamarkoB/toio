@@ -424,48 +424,69 @@ fn handle_packet(packet: OscPacket) -> Option<(usize, Command)> {
                     priority: vals[6] as u8,
                     duration: vals[7] as u8,
                 }),
-                "/multitarget" => {
-                    println!();
-                    println!("MultTarget! ");
-                    println!("{:#?}", vals);
+                "/multitarget" => Some(Command::MultiTarget {
+                    control: vals[1] as u8,
+                    timeout: vals[2] as u8,
+                    move_type: vals[3] as u8,
+                    max_speed: vals[4] as u8,
+                    speed_change: vals[5] as u8,
+                    op_add: 1,
+                    targets: {
+                        let mut targets = vec![];
 
-                    let a = Some(Command::MultiTarget {
-                        control: vals[1] as u8,
-                        timeout: vals[2] as u8,
-                        move_type: vals[3] as u8,
-                        max_speed: vals[4] as u8,
-                        speed_change: vals[5] as u8,
-                        op_add: vals[6] as u8,
-                        targets: {
-                            let mut targets = vec![];
+                        for k in 0..((vals.len() - 6) / 3) {
+                            targets.push(TargetCommand {
+                                x_target: vals[6 + (k * 3)] as u16,
+                                y_target: vals[7 + (k * 3)] as u16,
+                                theta_target: vals[8 + (k * 3)] as u16,
+                            });
+                        }
 
-                            let size = (targets.len() - 7) / 3;
-
-                            for k in 0..size {
-                                targets.push(TargetCommand {
-                                    x_target: vals[7 + (k * 3)] as u16,
-                                    y_target: vals[8 + (k * 3)] as u16,
-                                    theta_target: vals[9 + (k * 3)] as u16,
-                                });
-                            }
-
-                            targets
-                        },
-                    });
-
-                    println!("{:#?}", a);
-
-                    a
-                }
+                        targets
+                    },
+                }),
                 "/led" => Some(Command::Led {
                     duration: vals[1] as u8,
                     red: vals[2] as u8,
                     green: vals[3] as u8,
                     blue: vals[4] as u8,
                 }),
+                "/multiLed" => Some(Command::MultiLed {
+                    repetitions: vals[1] as u8,
+                    lights: {
+                        let mut lights = vec![];
+
+                        for k in 0..((vals.len() - 2) / 4) {
+                            lights.push(LedCommand {
+                                duration: vals[2 + (k * 4)] as u8,
+                                red: vals[3 + (k * 4)] as u8,
+                                green: vals[4 + (k * 4)] as u8,
+                                blue: vals[5 + (k * 4)] as u8,
+                            });
+                        }
+
+                        lights
+                    },
+                }),
                 "/sound" => Some(Command::Sound {
                     sound_effect: vals[1] as u8,
                     volume: vals[2] as u8,
+                }),
+                "/midi" => Some(Command::Midi {
+                    repetitions: vals[1] as u8,
+                    notes: {
+                        let mut notes = vec![];
+
+                        for k in 0..((vals.len() - 2) / 3) {
+                            notes.push(MidiCommand {
+                                duration: vals[2 + (k * 3)] as u8,
+                                note: vals[3 + (k * 3)] as u8,
+                                volume: vals[4 + (k * 3)] as u8,
+                            });
+                        }
+
+                        notes
+                    },
                 }),
 
                 _ => None,
