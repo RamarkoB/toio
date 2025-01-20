@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use std::vec;
 
+use futures::future::join_all;
 use rosc::encoder;
 use rosc::{OscMessage, OscPacket, OscType};
 use tokio::sync::RwLock;
@@ -293,13 +294,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let connected_clone = connected.clone();
     loop {
-        let mut names = vec![];
         let connected_read = connected_clone.read().await;
 
-        for i in 0..connected_read.len() {
-            let toio = &connected_read[i];
-
+        let toio_info = join_all(connected_read.iter().map(|toio| async {
             let name = toio.name.clone();
+            let id = toio.id.clone();
+            let connected = toio.is_connected().await;
 
             let battery_string = if let Some(level) = *toio.battery.read().await {
                 format!("{}", level)
@@ -339,21 +339,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 "N/A".to_string()
             };
 
-            let connected = toio.is_connected().await;
-
-            let id = toio.id.clone();
-
-            names.push((
+            (
                 name,
                 id,
                 battery_string,
                 last_update_string,
                 last_command_string,
                 connected,
-            ));
-        }
+            )
+        }))
+        .await;
 
-        terminal.draw(ui(names))?;
+        terminal.draw(ui(toio_info))?;
 
         if handle_events()? {
             disable_raw_mode()?;
@@ -612,11 +609,11 @@ impl ToioUI {
     }
 }
 
-fn ui(names: Vec<(String, String, String, String, String, bool)>) -> impl Fn(&mut Frame) {
+fn ui(toio_info: Vec<(String, String, String, String, String, bool)>) -> impl Fn(&mut Frame) {
     return move |frame| {
         let area = frame.size();
 
-        let rows: Vec<Row> = names
+        let rows: Vec<Row> = toio_info
             .iter()
             .enumerate()
             .map(|(i, val)| {
