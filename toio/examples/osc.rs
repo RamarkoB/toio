@@ -296,8 +296,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let mut names = vec![];
         let connected_read = connected_clone.read().await;
 
-        let mut i = 0;
-        while i < connected_read.len() {
+        for i in 0..connected_read.len() {
             let toio = &connected_read[i];
 
             let name = toio.name.clone();
@@ -352,7 +351,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 last_command_string,
                 connected,
             ));
-            i += 1;
         }
 
         terminal.draw(ui(names))?;
@@ -380,17 +378,16 @@ fn handle_events() -> io::Result<bool> {
 fn handle_packet(packet: OscPacket) -> Option<(usize, Command)> {
     match packet {
         OscPacket::Message(msg) => {
-            // println!("OSC address {}: {:?}", msg.addr, msg.args);
-            let mut vals = vec![];
+            let mut vals: Vec<i32> = msg
+                .args
+                .iter()
+                .flat_map(|val| match val {
+                    OscType::Int(i) => Some(*i),
+                    _ => None,
+                })
+                .collect();
 
-            for k in 0..msg.args.len() {
-                if let OscType::Int(i) = msg.args[k] {
-                    vals.push(i);
-                }
-            }
-            let toioid = vals[0] as usize;
-
-            // println!("{}", msg.addr);
+            // extract command
             let cmd: Option<Command> = match msg.addr.as_ref() {
                 "/motorbasic" => Some(Command::MotorControl {
                     left_direction: vals[1] as u8,
@@ -431,19 +428,15 @@ fn handle_packet(packet: OscPacket) -> Option<(usize, Command)> {
                     max_speed: vals[4] as u8,
                     speed_change: vals[5] as u8,
                     op_add: 1,
-                    targets: {
-                        let mut targets = vec![];
-
-                        for k in 0..((vals.len() - 6) / 3) {
-                            targets.push(TargetCommand {
-                                x_target: vals[6 + (k * 3)] as u16,
-                                y_target: vals[7 + (k * 3)] as u16,
-                                theta_target: vals[8 + (k * 3)] as u16,
-                            });
-                        }
-
-                        targets
-                    },
+                    targets: vals
+                        .split_off(6)
+                        .chunks(3)
+                        .map(|target| TargetCommand {
+                            x_target: target[0] as u16,
+                            y_target: target[1] as u16,
+                            theta_target: target[2] as u16,
+                        })
+                        .collect(),
                 }),
                 "/led" => Some(Command::Led {
                     duration: vals[1] as u8,
@@ -453,20 +446,16 @@ fn handle_packet(packet: OscPacket) -> Option<(usize, Command)> {
                 }),
                 "/multiLed" => Some(Command::MultiLed {
                     repetitions: vals[1] as u8,
-                    lights: {
-                        let mut lights = vec![];
-
-                        for k in 0..((vals.len() - 2) / 4) {
-                            lights.push(LedCommand {
-                                duration: vals[2 + (k * 4)] as u8,
-                                red: vals[3 + (k * 4)] as u8,
-                                green: vals[4 + (k * 4)] as u8,
-                                blue: vals[5 + (k * 4)] as u8,
-                            });
-                        }
-
-                        lights
-                    },
+                    lights: vals
+                        .split_off(2)
+                        .chunks(4)
+                        .map(|light| LedCommand {
+                            duration: light[0] as u8,
+                            red: light[1] as u8,
+                            green: light[2] as u8,
+                            blue: light[3] as u8,
+                        })
+                        .collect(),
                 }),
                 "/sound" => Some(Command::Sound {
                     sound_effect: vals[1] as u8,
@@ -474,29 +463,22 @@ fn handle_packet(packet: OscPacket) -> Option<(usize, Command)> {
                 }),
                 "/midi" => Some(Command::Midi {
                     repetitions: vals[1] as u8,
-                    notes: {
-                        let mut notes = vec![];
-
-                        for k in 0..((vals.len() - 2) / 3) {
-                            notes.push(MidiCommand {
-                                duration: vals[2 + (k * 3)] as u8,
-                                note: vals[3 + (k * 3)] as u8,
-                                volume: vals[4 + (k * 3)] as u8,
-                            });
-                        }
-
-                        notes
-                    },
+                    notes: vals
+                        .split_off(2)
+                        .chunks(3)
+                        .map(|note| MidiCommand {
+                            duration: note[0] as u8,
+                            note: note[1] as u8,
+                            volume: note[2] as u8,
+                        })
+                        .collect(),
                 }),
 
                 _ => None,
             };
 
-            if let Some(cmd) = cmd {
-                return Some((toioid, cmd));
-            } else {
-                return None;
-            }
+            // Return pair of (toioID, pair)
+            return cmd.map(|cmd| (vals[0] as usize, cmd));
         }
         _ => None,
     }
@@ -664,7 +646,6 @@ fn ui(names: Vec<(String, String, String, String, String, bool)>) -> impl Fn(&mu
 
         let instructions = Title::from(Line::from(vec![" Quit ".into(), "<Q> ".blue().bold()]));
 
-        // Columns widths are constrained in the same way as Layout...
         let widths = [
             Constraint::Length(2),
             Constraint::Length(4),
@@ -675,9 +656,7 @@ fn ui(names: Vec<(String, String, String, String, String, bool)>) -> impl Fn(&mu
         ];
 
         let table = Table::new(rows, widths)
-            // ...and they can be separated by a fixed spacing.
             .column_spacing(7)
-            // It has an optional header, which is simply a Row always visible at the top.
             .header(
                 Row::new(vec![
                     "",
@@ -687,11 +666,9 @@ fn ui(names: Vec<(String, String, String, String, String, bool)>) -> impl Fn(&mu
                     "Last Update",
                     "Last Command",
                 ])
-                .style(Style::new().bold()), // To add space between the header and the rest of the rows, specify the margin
+                .style(Style::new().bold()),
             )
-            // The selected row and its content can also be styled.
             .highlight_style(Style::new().reversed())
-            // ...and potentially show a symbol in front of the selection.
             .highlight_symbol(">>");
 
         frame.render_widget(
