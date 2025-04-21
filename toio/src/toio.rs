@@ -75,6 +75,7 @@ pub struct MidiCommand {
 }
 
 /// An enum to list out all possible commands to send to a toio
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub enum Command {
     //Request Commands
@@ -195,6 +196,7 @@ fn parse_midi_command(repetitions: u8, vals: Vec<MidiCommand>) -> Vec<u8> {
 }
 
 /// An enum to list out all possible updates to recieve from a toio
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum Update {
     Position {
