@@ -23,23 +23,6 @@ pub const BUTTON: Uuid = Uuid::from_u128(0x10B20107_5B3B_4571_9508_CF3EFCD7BBAE)
 pub const BATTERY: Uuid = Uuid::from_u128(0x10B20108_5B3B_4571_9508_CF3EFCD7BBAE);
 pub const CONFIG: Uuid = Uuid::from_u128(0x10B201FF_5B3B_4571_9508_CF3EFCD7BBAE);
 
-/// matches UUIDs of toios a string of their coresponding service
-pub fn uuid_to_string(uuid: Uuid) -> String {
-    return match uuid {
-        SERVICE => "Service",
-        POSITION => "Position",
-        MOTOR => "Motor",
-        LIGHT => "Light",
-        SOUND => "Sound",
-        MOTION => "Motion",
-        BUTTON => "Button",
-        BATTERY => "Battery",
-        CONFIG => "Config",
-        _ => "",
-    }
-    .to_owned();
-}
-
 /// Format for a target to plug into the MotorTarget varient
 /// of the Command enum. By putting multiple of these into a vector,
 /// you can send a a series of targets for a toio to travel to in
@@ -153,48 +136,6 @@ pub enum Command {
     },
 }
 
-fn parse_target_command(vals: Vec<TargetCommand>) -> Vec<u8> {
-    let mut cmd = vec![];
-
-    for target in vals.iter() {
-        cmd.push((target.x_target & 0x00FF) as u8);
-        cmd.push(((target.x_target & 0xFF00) >> 8) as u8);
-        cmd.push((target.y_target & 0x00FF) as u8);
-        cmd.push(((target.y_target & 0xFF00) >> 8) as u8);
-        cmd.push((target.theta_target & 0x00FF) as u8);
-        cmd.push(((target.theta_target & 0xFF00) >> 8) as u8);
-    }
-
-    return cmd;
-}
-
-fn parse_led_command(repetitions: u8, vals: Vec<LedCommand>) -> Vec<u8> {
-    let mut cmd = vec![0x04, repetitions, vals.len() as u8];
-
-    for led in vals.iter() {
-        cmd.push(led.duration);
-        cmd.push(0x01);
-        cmd.push(0x01);
-        cmd.push(led.red);
-        cmd.push(led.green);
-        cmd.push(led.blue);
-    }
-
-    return cmd;
-}
-
-fn parse_midi_command(repetitions: u8, vals: Vec<MidiCommand>) -> Vec<u8> {
-    let mut cmd = vec![0x03, repetitions, vals.len() as u8];
-
-    for note in vals.iter() {
-        cmd.push(note.duration);
-        cmd.push(note.note);
-        cmd.push(note.volume);
-    }
-
-    return cmd;
-}
-
 /// An enum to list out all possible updates to recieve from a toio
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -265,6 +206,18 @@ pub enum Update {
 pub struct Toio {
     pub name: String,
     peripheral: platform::Peripheral,
+}
+
+pub struct ToioScanner {
+    central: Adapter,
+}
+
+pub struct Toios {
+    receiver: Receiver<Toio>,
+}
+
+pub struct Updates {
+    receiver: Receiver<Update>,
 }
 
 impl Toio {
@@ -656,10 +609,6 @@ impl Toio {
     }
 }
 
-pub struct ToioScanner {
-    central: Adapter,
-}
-
 impl ToioScanner {
     pub async fn new() -> Result<ToioScanner, Box<dyn Error>> {
         let manager = Manager::new().await?;
@@ -736,10 +685,6 @@ impl ToioScanner {
     }
 }
 
-pub struct Toios {
-    receiver: Receiver<Toio>,
-}
-
 impl Toios {
     fn new(receiver: Receiver<Toio>) -> Toios {
         return Toios { receiver };
@@ -750,10 +695,6 @@ impl Toios {
     }
 }
 
-pub struct Updates {
-    receiver: Receiver<Update>,
-}
-
 impl Updates {
     fn new(receiver: Receiver<Update>) -> Updates {
         return Updates { receiver };
@@ -762,4 +703,63 @@ impl Updates {
     pub async fn next(&mut self) -> Option<Update> {
         return self.receiver.recv().await;
     }
+}
+
+/// matches UUIDs of toios a string of their coresponding service
+pub fn uuid_to_string(uuid: Uuid) -> String {
+    return match uuid {
+        SERVICE => "Service",
+        POSITION => "Position",
+        MOTOR => "Motor",
+        LIGHT => "Light",
+        SOUND => "Sound",
+        MOTION => "Motion",
+        BUTTON => "Button",
+        BATTERY => "Battery",
+        CONFIG => "Config",
+        _ => "",
+    }
+    .to_owned();
+}
+
+fn parse_target_command(vals: Vec<TargetCommand>) -> Vec<u8> {
+    let mut cmd = vec![];
+
+    for target in vals.iter() {
+        cmd.push((target.x_target & 0x00FF) as u8);
+        cmd.push(((target.x_target & 0xFF00) >> 8) as u8);
+        cmd.push((target.y_target & 0x00FF) as u8);
+        cmd.push(((target.y_target & 0xFF00) >> 8) as u8);
+        cmd.push((target.theta_target & 0x00FF) as u8);
+        cmd.push(((target.theta_target & 0xFF00) >> 8) as u8);
+    }
+
+    return cmd;
+}
+
+fn parse_led_command(repetitions: u8, vals: Vec<LedCommand>) -> Vec<u8> {
+    let mut cmd = vec![0x04, repetitions, vals.len() as u8];
+
+    for led in vals.iter() {
+        cmd.push(led.duration);
+        cmd.push(0x01);
+        cmd.push(0x01);
+        cmd.push(led.red);
+        cmd.push(led.green);
+        cmd.push(led.blue);
+    }
+
+    return cmd;
+}
+
+fn parse_midi_command(repetitions: u8, vals: Vec<MidiCommand>) -> Vec<u8> {
+    let mut cmd = vec![0x03, repetitions, vals.len() as u8];
+
+    for note in vals.iter() {
+        cmd.push(note.duration);
+        cmd.push(note.note);
+        cmd.push(note.volume);
+    }
+
+    return cmd;
 }
