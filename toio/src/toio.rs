@@ -1,3 +1,19 @@
+use std::error::Error;
+use std::sync::Arc;
+use std::time::SystemTime;
+use std::vec;
+
+use futures::future::Either;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
+use tokio::time::timeout;
+
+use futures::stream::StreamExt;
+
+use uuid::Uuid;
+
 use btleplug::{
     api::{
         Central, CentralEvent, CharPropFlags, Characteristic, Manager as _, Peripheral, ScanFilter,
@@ -6,12 +22,6 @@ use btleplug::{
     platform,
     platform::{Adapter, Manager},
 };
-use futures::stream::StreamExt;
-use std::error::Error;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::time::timeout;
-use uuid::Uuid;
 
 pub const SERVICE: Uuid = Uuid::from_u128(0x10B20100_5B3B_4571_9508_CF3EFCD7BBAE);
 pub const POSITION: Uuid = Uuid::from_u128(0x10B20101_5B3B_4571_9508_CF3EFCD7BBAE);
@@ -22,6 +32,202 @@ pub const MOTION: Uuid = Uuid::from_u128(0x10B20106_5B3B_4571_9508_CF3EFCD7BBAE)
 pub const BUTTON: Uuid = Uuid::from_u128(0x10B20107_5B3B_4571_9508_CF3EFCD7BBAE);
 pub const BATTERY: Uuid = Uuid::from_u128(0x10B20108_5B3B_4571_9508_CF3EFCD7BBAE);
 pub const CONFIG: Uuid = Uuid::from_u128(0x10B201FF_5B3B_4571_9508_CF3EFCD7BBAE);
+
+const IDARR: [&str; 193] = [
+    "Individual ID", //TOIO Num
+    "0",             // #1
+    "j1c",           // #2
+    "r81",           // #3
+    "26E",           // #4
+    "76t",           // #5
+    "broken",        // #6
+    "k5k",           // #7
+    "h41",           // #8
+    "0",             // #9
+    "0",             // #10
+    "0",             // #11
+    "Q3A",           // #12
+    "03a",           // #13
+    "0",             // #14
+    "K0m",           // #15
+    "0",             // #16
+    "0",             // #17
+    "p8B",           // #18
+    "91B",           // #19
+    "p75",           // #20
+    "G1E",           // #21
+    "k2L",           // #22
+    "b5p",           // #23
+    "J6C",           // #24
+    "0",             // #25
+    "b8T",           // #26
+    "b6A",           // #27
+    "01c",           // #28
+    "0",             // #29
+    "0",             // #30
+    "E2N",           // #31
+    "G7t",           // #32
+    "L6T",           // #33
+    "C0E",           // #34
+    "t79",           // #35
+    "J6k",           // #36
+    "d6f",           // #37
+    "0",             // #38
+    "M75",           // #39
+    "310",           // #40
+    "M5p",           // #41
+    "A4a",           // #42
+    "M9J",           // #43
+    "i01",           // #44
+    "T5m",           // #45
+    "j1G",           // #46
+    "40G",           // #47
+    "L6n",           // #48
+    "a3F",           // #49
+    "J8d",           // #50
+    "227",           // #51
+    "k4i",           // #52
+    "J68",           // #53
+    "90J",           // #54
+    "k96",           // #55
+    "0",             // #56
+    "0",             // #57
+    "0",             // #58
+    "0",             // #59
+    "0",             // #60
+    "0",             // #61
+    "0",             // #62
+    "0",             // #63
+    "0",             // #64
+    "0",             // #65
+    "0",             // #66
+    "0",             // #67
+    "0",             // #68
+    "0",             // #69
+    "0",             // #70
+    "0",             // #71
+    "0",             // #72
+    "0",             // #73
+    "0",             // #74
+    "0",             // #75
+    "0",             // #76
+    "0",             // #77
+    "0",             // #78
+    "E7c",           // #79
+    "P1B",           // #80
+    "F2B",           // #81
+    "L1H",           // #82
+    "D5i",           // #83
+    "m4Q",           // #84
+    "m1k",           // #85
+    "r52",           // #86
+    "k89",           // #87
+    "D2K",           // #88
+    "65r",           // #89
+    "f3K",           // #90
+    "13c",           // #91
+    "e1a",           // #92
+    "0",             // #93
+    "e6e",           // #94
+    "07F",           // #95
+    "m8k",           // #96
+    "79H",           // #97
+    "0",             // #98
+    "i1M",           // #99
+    "R3C",           // #100
+    "D98",           // #101
+    "m86",           // #102
+    "a66",           // #103
+    "0",             // #104
+    "E8T",           // #105
+    "J8n",           // #106
+    "N0b",           // #107
+    "586",           // #108
+    "p50",           // #109
+    "c9k",           // #110
+    "N0N",           // #111
+    "0",             // #112
+    "B1m",           // #113
+    "h7E",           // #114
+    "c05",           // #115
+    "K20",           // #116
+    "32D",           // #117
+    "F19",           // #118
+    "r4d",           // #119
+    "D2F",           // #120
+    "D0m",           // #121
+    "m6B",           // #122
+    "M0j",           // #123
+    "Q8G",           // #124
+    "A1t",           // #125
+    "p7J",           // #126
+    "t0H",           // #127
+    "M5i",           // #128
+    "j1L",           // #129
+    "e7i",           // #130
+    "T1E",           // #131
+    "85i",           // #132
+    "71H",           // #133
+    "20H",           // #134
+    "T9n",           // #135
+    "58B",           // #136
+    "J4R",           // #137
+    "93N",           // #138
+    "t0F",           // #139
+    "M7G",           // #140
+    "r4P",           // #141
+    "i1d",           // #142
+    "a22",           // #143
+    "M39",           // #144
+    "C23",           // #145
+    "816",           // #146
+    "E0M",           // #147
+    "T4b",           // #148
+    "L1L",           // #149
+    "i5m",           // #150
+    "P2R",           // #151
+    "t77",           // #152
+    "A5E",           // #153
+    "88e",           // #154
+    "k1b",           // #155
+    "m04",           // #156
+    "41b",           // #157
+    "B4k",           // #158
+    "J1M",           // #159
+    "H4M",           // #160
+    "C1D",           // #161
+    "12K",           // #162
+    "822",           // #163
+    "E1T",           // #164
+    "Q4H",           // #165
+    "k4d",           // #166
+    "k4J",           // #167
+    "L70",           // #168
+    "31f",           // #169
+    "G1P",           // #170
+    "34e",           // #171
+    "939",           // #172
+    "24F",           // #173
+    "43r",           // #174
+    "M81",           // #175
+    "01E",           // #176
+    "A0N",           // #177
+    "65f",           // #178
+    "Q6p",           // #179
+    "93R",           // #180
+    "r0i",           // #181
+    "A35",           // #182
+    "P40",           // #183
+    "G9R",           // #184
+    "c7C",           // #185
+    "P17",           // #186
+    "76f",           // #187
+    "99p",           // #188
+    "96E",           // #189
+    "p3E",           // #190
+    "h6t",           // #191
+    "n2L",           // #192
+];
 
 /// Format for a target to plug into the MotorTarget varient
 /// of the Command enum. By putting multiple of these into a vector,
@@ -203,26 +409,230 @@ pub enum Update {
     },
 }
 
-pub struct Toio {
-    pub name: String,
-    peripheral: platform::Peripheral,
-}
-
-pub struct ToioScanner {
-    central: Adapter,
-}
-
-pub struct Toios {
-    receiver: Receiver<Toio>,
-}
-
 pub struct Updates {
     receiver: Receiver<Update>,
 }
 
-impl Toio {
-    pub fn new(name: String, peripheral: platform::Peripheral) -> Toio {
-        Toio { name, peripheral }
+pub struct ToioScanner {
+    central: Adapter,
+    ordered: bool,
+    filter: Option<Vec<String>>,
+}
+
+pub struct ToioReceiver {
+    receiver: Receiver<Either<ToioPeripheral, platform::PeripheralId>>,
+}
+
+pub struct ToioPeripheral {
+    pub name: String,
+    peripheral: platform::Peripheral,
+    pub peripheral_id: platform::PeripheralId,
+}
+
+pub struct Toio {
+    pub toio: ToioPeripheral,
+    pub name: String,
+    pub id: String,
+    pub connected: bool,
+    pub channel: Option<JoinHandle<()>>,
+    pub battery: Arc<RwLock<Option<u8>>>,
+    pub last_update: Arc<RwLock<Option<SystemTime>>>,
+    pub last_command: Arc<RwLock<Option<SystemTime>>>,
+}
+
+impl Updates {
+    fn new(receiver: Receiver<Update>) -> Updates {
+        return Updates { receiver };
+    }
+
+    pub async fn next(&mut self) -> Option<Update> {
+        return self.receiver.recv().await;
+    }
+}
+
+impl ToioScanner {
+    pub async fn new() -> Result<ToioScanner, Box<dyn Error>> {
+        let manager = Manager::new().await?;
+
+        // get the first bluetooth adapter
+        // connect to the adapter
+        let central = manager
+            .adapters()
+            .await
+            .unwrap()
+            .into_iter()
+            .nth(0)
+            .unwrap();
+
+        Ok(ToioScanner {
+            central,
+            filter: None,
+            ordered: false,
+        })
+    }
+
+    pub async fn new_with_filter(
+        ordered: bool,
+        filter: Vec<usize>,
+    ) -> Result<ToioScanner, Box<dyn Error>> {
+        let manager = Manager::new().await?;
+
+        // get the first bluetooth adapter
+        // connect to the adapter
+        let central = manager
+            .adapters()
+            .await
+            .unwrap()
+            .into_iter()
+            .nth(0)
+            .unwrap();
+
+        let toio_filter = filter.iter().map(|x| IDARR[*x].to_string()).collect();
+
+        Ok(ToioScanner {
+            central,
+            filter: Some(toio_filter),
+            ordered,
+        })
+    }
+
+    pub async fn search(&self) -> Result<ToioReceiver, Box<dyn Error>> {
+        let central = self.central.clone();
+        let mut events = central.events().await?;
+
+        // start scanning for devices
+        central
+            .start_scan(ScanFilter {
+                services: vec![SERVICE, CONFIG],
+            })
+            .await?;
+
+        let (tx, rx) = mpsc::channel(32);
+
+        //Discovery Async Task
+        let mut toio_filter = self.filter.clone();
+        let ordered = self.ordered;
+        tokio::spawn(async move {
+            while let Some(event) = events.next().await {
+                match event {
+                    CentralEvent::DeviceDiscovered(id) => {
+                        let peripheral = central.peripheral(&id).await.unwrap();
+
+                        if ordered {
+                            // if succesful connection and the filter is ordered, update filter
+                            if let Some(ref mut new_filter) = toio_filter.clone() {
+                                if !new_filter.is_empty() {
+                                    let curr_toio = new_filter.remove(0);
+
+                                    let connect_success = Self::try_connect(
+                                        peripheral,
+                                        &tx,
+                                        Some(vec![curr_toio.clone()]),
+                                    )
+                                    .await;
+
+                                    if connect_success {
+                                        toio_filter = Some(new_filter.to_vec());
+                                    }
+                                }
+                            }
+                        } else {
+                            Self::try_connect(peripheral, &tx, toio_filter.clone()).await;
+                        }
+                    }
+                    CentralEvent::ServicesAdvertisement { id, services: _ } => {
+                        let peripheral = central.peripheral(&id).await.unwrap();
+
+                        if ordered {
+                            // if succesful connection and the filter is ordered, update filter
+                            if let Some(ref mut new_filter) = toio_filter.clone() {
+                                if !new_filter.is_empty() {
+                                    let curr_toio = new_filter.remove(0);
+
+                                    let connect_success = Self::try_connect(
+                                        peripheral,
+                                        &tx,
+                                        Some(vec![curr_toio.clone()]),
+                                    )
+                                    .await;
+
+                                    if connect_success {
+                                        toio_filter = Some(new_filter.to_vec());
+                                    }
+                                }
+                            }
+                        } else {
+                            Self::try_connect(peripheral, &tx, toio_filter.clone()).await;
+                        }
+                    }
+                    CentralEvent::DeviceDisconnected(id) => {
+                        Self::set_disconnected(id, &tx).await;
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        return Ok(ToioReceiver::new(rx));
+    }
+
+    async fn try_connect(
+        peripheral: platform::Peripheral,
+        tx: &Sender<Either<ToioPeripheral, platform::PeripheralId>>,
+        filter: Option<Vec<String>>,
+    ) -> bool {
+        if let Some(properties) = peripheral.properties().await.unwrap() {
+            let fullname = properties.local_name.unwrap_or("".to_string());
+            if peripheral.is_connected().await.unwrap() || !fullname.contains(&"toio") {
+                return false;
+            }
+
+            let name: Vec<&str> = fullname.split('-').collect();
+            let toio_name = name.last().unwrap_or(&&" ").to_string();
+            if let Some(filter_list) = filter {
+                if !filter_list.contains(&toio_name) {
+                    return false;
+                }
+            }
+
+            let toio_peripheral = ToioPeripheral::new(toio_name, peripheral);
+            if !toio_peripheral.connect().await {
+                return false;
+            }
+
+            tx.send(Either::Left(toio_peripheral)).await.unwrap();
+
+            return true;
+        }
+
+        return false;
+    }
+
+    async fn set_disconnected(
+        peripheral_id: platform::PeripheralId,
+        tx: &Sender<Either<ToioPeripheral, platform::PeripheralId>>,
+    ) {
+        tx.send(Either::Right(peripheral_id)).await.unwrap();
+    }
+}
+
+impl ToioReceiver {
+    fn new(receiver: Receiver<Either<ToioPeripheral, platform::PeripheralId>>) -> ToioReceiver {
+        return ToioReceiver { receiver };
+    }
+
+    pub async fn next(&mut self) -> Option<Either<ToioPeripheral, platform::PeripheralId>> {
+        return self.receiver.recv().await;
+    }
+}
+
+impl ToioPeripheral {
+    pub fn new(name: String, peripheral: platform::Peripheral) -> ToioPeripheral {
+        ToioPeripheral {
+            name,
+            peripheral_id: peripheral.id(),
+            peripheral,
+        }
     }
 
     pub async fn connect(&self) -> bool {
@@ -260,7 +670,7 @@ impl Toio {
             .await
             {
                 if let Some(event) = possible_event {
-                    if let Some(update) = Toio::get_update(event) {
+                    if let Some(update) = ToioPeripheral::get_update(event) {
                         tx.send(update).await.unwrap();
                     }
                 }
@@ -268,10 +678,6 @@ impl Toio {
         });
 
         return Ok(Updates::new(rx));
-    }
-
-    pub async fn is_connected(&self) -> bool {
-        return self.peripheral.is_connected().await.unwrap();
     }
 
     fn get_update(notification: ValueNotification) -> Option<Update> {
@@ -609,99 +1015,49 @@ impl Toio {
     }
 }
 
-impl ToioScanner {
-    pub async fn new() -> Result<ToioScanner, Box<dyn Error>> {
-        let manager = Manager::new().await?;
-
-        // get the first bluetooth adapter
-        // connect to the adapter
-        let central = manager
-            .adapters()
-            .await
-            .unwrap()
-            .into_iter()
-            .nth(0)
-            .unwrap();
-
-        Ok(ToioScanner { central })
+impl Toio {
+    pub fn new(toio: ToioPeripheral) -> Toio {
+        return Toio {
+            name: toio.name.clone(),
+            id: if let Some(id) = return_toio_id(&toio.name) {
+                format!("{}", id)
+            } else {
+                "N/A".to_owned()
+            },
+            connected: true,
+            channel: None,
+            battery: Arc::new(RwLock::new(None)),
+            toio,
+            last_update: Arc::new(RwLock::new(None)),
+            last_command: Arc::new(RwLock::new(None)),
+        };
     }
 
-    pub async fn search(&self) -> Result<Toios, Box<dyn Error>> {
-        // Each adapter has an event stream, we fetch via events(),
-        // simplifying the type, this will return what is essentially a
-        // Future<Result<Stream<Item=CentralEvent>>>.
-        let central = self.central.clone();
-        let mut events = central.events().await?;
-
-        // start scanning for devices
-        central
-            .start_scan(ScanFilter {
-                services: vec![SERVICE, CONFIG],
-            })
-            .await?;
-
-        let (tx, rx) = mpsc::channel(32);
-
-        //Discovery Async Task
-        tokio::spawn(async move {
-            while let Some(event) = events.next().await {
-                match event {
-                    CentralEvent::DeviceDiscovered(id) => {
-                        let peripheral = central.peripheral(&id).await.unwrap();
-                        Self::try_connect(peripheral, &tx).await;
-                    }
-                    // CentralEvent::DeviceUpdated(id) => {
-                    //     let peripheral = central.peripheral(&id).await.unwrap();
-                    //     Self::try_connect(peripheral, &tx).await;
-                    // }
-                    CentralEvent::DeviceDisconnected(_) => {
-                        // println!("Device Disconnected! {:?}", id);
-                    }
-                    _ => {}
-                }
-            }
-        });
-
-        return Ok(Toios::new(rx));
+    pub fn add_channel(&mut self, channel: JoinHandle<()>) {
+        self.channel = Some(channel);
     }
 
-    async fn try_connect(peripheral: platform::Peripheral, tx: &Sender<Toio>) {
-        if let Some(properties) = peripheral.properties().await.unwrap() {
-            let fullname = properties.local_name.unwrap_or("".to_string());
-            if peripheral.is_connected().await.unwrap() || !fullname.contains(&"toio") {
-                return;
-            }
-
-            let name: Vec<&str> = fullname.split('-').collect();
-
-            // println!("{} : {:?}", name, properties.services);
-            tx.send(Toio::new(
-                name.last().unwrap_or(&&" ").to_string(),
-                peripheral,
-            ))
-            .await
-            .unwrap();
+    pub fn disconnect(&mut self) {
+        if let Some(channel) = &self.channel {
+            channel.abort();
         }
-    }
-}
-
-impl Toios {
-    fn new(receiver: Receiver<Toio>) -> Toios {
-        return Toios { receiver };
+        self.connected = false;
     }
 
-    pub async fn next(&mut self) -> Option<Toio> {
-        return self.receiver.recv().await;
-    }
-}
-
-impl Updates {
-    fn new(receiver: Receiver<Update>) -> Updates {
-        return Updates { receiver };
+    pub fn get_battery(&self) -> Arc<RwLock<Option<u8>>> {
+        return self.battery.clone();
     }
 
-    pub async fn next(&mut self) -> Option<Update> {
-        return self.receiver.recv().await;
+    pub fn get_last_update(&self) -> Arc<RwLock<Option<SystemTime>>> {
+        return self.last_update.clone();
+    }
+
+    pub fn get_last_command(&self) -> Arc<RwLock<Option<SystemTime>>> {
+        return self.last_command.clone();
+    }
+
+    pub async fn is_connected(&self) -> bool {
+        return self.connected;
     }
 }
 
@@ -762,4 +1118,8 @@ fn parse_midi_command(repetitions: u8, vals: Vec<MidiCommand>) -> Vec<u8> {
     }
 
     return cmd;
+}
+
+fn return_toio_id(name: &str) -> Option<usize> {
+    return IDARR.iter().position(|&r| r == name);
 }
