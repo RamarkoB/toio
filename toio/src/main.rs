@@ -81,6 +81,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // server and client address
     let host_addr = format!("0.0.0.0:{}", args.port.unwrap_or(3334));
     let to_addr = format!("0.0.0.0:{}", args.remote.unwrap_or(3333));
+    if args.terminal {
+        println!(
+            "Listening on port {} and sending to port {}",
+            host_addr, to_addr
+        )
+    }
 
     // open socket and create buffer
     let socket = Arc::new(UdpSocket::bind(&host_addr)?);
